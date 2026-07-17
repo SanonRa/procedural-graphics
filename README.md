@@ -7,6 +7,8 @@ An exploration of generating graphics directly from source code.
 Traditional games:
 assets -> renderer
 
+(from Assets in the Assets\)
+
 This project:
 code -> graphics
 
@@ -25,3 +27,5 @@ code -> graphics
 - Procedural animations
 
 > If it can be described, it can be generated.
+
+(Inspiration: TempleOS by Terry A. Davis)
