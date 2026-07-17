@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Procedural Terrain</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #7ec0ee;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #ui-container {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.42);
+      padding: 12px 14px;
+      border-radius: 12px;
+      backdrop-filter: blur(6px);
+      min-width: 240px;
+      user-select: none;
+    }
+
+    .ui-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .ui-label {
+      font-weight: 700;
+      min-width: 78px;
+    }
+
+    #seed-input {
+      width: 110px;
+      padding: 5px 8px;
+      border: 0;
+      border-radius: 8px;
+      outline: none;
+    }
+
+    #generate-btn {
+      padding: 6px 10px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      background: #fff;
+      color: #111;
+    }
+
+    .controls-list {
+      margin-top: 8px;
+      font-size: 13px;
+      line-height: 1.45;
+      opacity: 0.95;
+    }
+  </style>
+</head>
+<body>
+  <!-- UI Overlay -->
+  <div id="ui-container">
+    <div class="ui-row">
+      <span class="ui-label">FPS:</span> <span id="fps-display">0</span>
+    </div>
+    <div class="ui-row">
+      <span class="ui-label">Terrain size:</span> 256x256
+    </div>
+    <div class="ui-row">
+      <span class="ui-label">Seed:</span>
+      <input type="number" id="seed-input" value="42" min="0" max="4294967295" step="1">
+      <button id="generate-btn">Gen</button>
+    </div>
+    <div class="controls-list">
+      <strong>Controls:</strong><br>
+      W A S D - Move horizontally<br>
+      Space - Move up<br>
+      Shift - Move down<br>
+      Mouse Drag - Rotate Camera
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three/build/three.module.js';
+
+    // ==========================================
+    // UTILITY FUNCTIONS & PRNG
+    // ==========================================
+    let currentSeed = 42;
+
+    function seededRandom() {
+      currentSeed = (currentSeed * 1664525 + 1013904223) >>> 0;
+      return currentSeed / 4294967296;
+    }
+
+    function setSeed(seed) {
+      currentSeed = (Math.floor(seed) >>> 0);
+    }
+
+    // ==========================================
+    // NOISE GENERATION (Simplex Noise 2D)
+    // ==========================================
+    const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
+    const G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
+
+    const grad3 = new Float32Array([
+      1, 1, 0,  -1, 1, 0,  1, -1, 0,  -1, -1, 0,
+      1, 0, 1,  -1, 0, 1,  1, 0, -1,  -1, 0, -1,
+      0, 1, 1,  0, -1, 1,  0, 1, -1,  0, -1, -1
+    ]);
+
+    let perm = new Uint8Array(512);
+    let permMod12 = new Uint8Array(512);
+
+    function initNoise() {
+      const p = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) p[i] = i;
+
+      for (let i = 255; i > 0; i--) {
+        const j = Math.floor(seededRandom() * (i + 1));
+        [p[i], p[j]] = [p[j], p[i]];
+      }
+
+      for (let i = 0; i < 512; i++) {
+        perm[i] = p[i & 255];
+        permMod12[i] = perm[i] % 12;
+      }
+    }
+
+    function simplex2D(xin, yin) {
+      let n0, n1, n2;
+      const s = (xin + yin) * F2;
+      const i = Math.floor(xin + s);
+      const j = Math.floor(yin + s);
+
+      const t = (i + j) * G2;
+      const X0 = i - t;
+      const Y0 = j - t;
+
+      const x0 = xin - X0;
+      const y0 = yin - Y0;
+
+      let i1, j1;
+      if (x0 > y0) {
+        i1 = 1; j1 = 0;
+      } else {
+        i1 = 0; j1 = 1;
+      }
+
+      const x1 = x0 - i1 + G2;
+      const y1 = y0 - j1 + G2;
+      const x2 = x0 - 1.0 + 2.0 * G2;
+      const y2 = y0 - 1.0 + 2.0 * G2;
+
+      const ii = i & 255;
+      const jj = j & 255;
+
+      const gi0 = permMod12[ii + perm[jj]] * 3;
+      const gi1 = permMod12[ii + i1 + perm[jj + j1]] * 3;
+      const gi2 = permMod12[ii + 1 + perm[jj + 1]] * 3;
+
+      let t0 = 0.5 - x0 * x0 - y0 * y0;
+      if (t0 < 0) n0 = 0.0;
+      else {
+        t0 *= t0;
+        n0 = t0 * t0 * (grad3[gi0] * x0 + grad3[gi0 + 1] * y0);
+      }
+
+      let t1 = 0.5 - x1 * x1 - y1 * y1;
+      if (t1 < 0) n1 = 0.0;
+      else {
+        t1 *= t1;
+        n1 = t1 * t1 * (grad3[gi1] * x1 + grad3[gi1 + 1] * y1);
+      }
+
+      let t2 = 0.5 - x2 * x2 - y2 * y2;
+      if (t2 < 0) n2 = 0.0;
+      else {
+        t2 *= t2;
+        n2 = t2 * t2 * (grad3[gi2] * x2 + grad3[gi2 + 1] * y2);
+      }
+
+      return 70.0 * (n0 + n1 + n2);
+    }
+
+    function fbm(x, y, octaves = 6) {
+      let v = 0.0;
+      let a = 0.5;
+      const shift = 100.0;
+
+      for (let i = 0; i < octaves; i++) {
+        v += a * simplex2D(x, y);
+        x = x * 2.0 + shift;
+        y = y * 2.0 + shift;
+        a *= 0.5;
+      }
+
+      return v;
+    }
+
+    // ==========================================
+    // SCENE SETUP
+    // ==========================================
+    const scene = new THREE.Scene();
+    const skyColor = new THREE.Color(0x7ec0ee);
+    scene.background = skyColor;
+    scene.fog = new THREE.FogExp2(skyColor, 0.002);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    // ==========================================
+    // LIGHTING
+    // ==========================================
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    hemiLight.position.set(0, 200, 0);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(200, 400, 200);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+
+    const d = 600;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    dirLight.shadow.camera.far = 1500;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+
+    // ==========================================
+    // TERRAIN GENERATION
+    // ==========================================
+    let terrainMesh = null;
+    const terrainSize = 1200;
+    const segments = 255;
+
+    const colorDeep = new THREE.Color(0x132600);
+    const colorGrass = new THREE.Color(0x3d730d);
+    const colorRock = new THREE.Color(0x5a5a5a);
+    const colorMountain = new THREE.Color(0x888888);
+    const colorSnow = new THREE.Color(0xffffff);
+
+    function generateTerrain(seed) {
+      if (terrainMesh) {
+        scene.remove(terrainMesh);
+        terrainMesh.geometry.dispose();
+        terrainMesh.material.dispose();
+        terrainMesh = null;
+      }
+
+      setSeed(seed);
+      initNoise();
+
+      const geometry = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
+      geometry.rotateX(-Math.PI / 2);
+
+      const positions = geometry.attributes.position;
+      const colors = new Float32Array(positions.count * 3);
+      const tempColor = new THREE.Color();
+
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const z = positions.getZ(i);
+
+        const scale = 0.0025;
+        let height = fbm(x * scale, z * scale, 6) * 160;
+
+        if (height > 0) {
+          height = Math.pow(height, 1.15);
+        } else {
+          height = -Math.pow(Math.abs(height), 0.95) * 0.7;
+        }
+
+        height += fbm(x * 0.015, z * 0.015, 3) * 6;
+
+        positions.setY(i, height);
+
+        let normalizedHeight = (height + 40) / 220;
+        normalizedHeight = Math.max(0, Math.min(1, normalizedHeight));
+
+        if (normalizedHeight < 0.25) {
+          tempColor.copy(colorDeep).lerp(colorGrass, normalizedHeight / 0.25);
+        } else if (normalizedHeight < 0.55) {
+          tempColor.copy(colorGrass).lerp(colorRock, (normalizedHeight - 0.25) / 0.30);
+        } else if (normalizedHeight < 0.78) {
+          tempColor.copy(colorRock).lerp(colorMountain, (normalizedHeight - 0.55) / 0.23);
+        } else {
+          tempColor.copy(colorMountain).lerp(colorSnow, (normalizedHeight - 0.78) / 0.22);
+        }
+
+        const colorVariation = simplex2D(x * 0.05, z * 0.05) * 0.04;
+        tempColor.r = Math.max(0, Math.min(1, tempColor.r + colorVariation));
+        tempColor.g = Math.max(0, Math.min(1, tempColor.g + colorVariation));
+        tempColor.b = Math.max(0, Math.min(1, tempColor.b + colorVariation));
+
+        colors[i * 3] = tempColor.r;
+        colors[i * 3 + 1] = tempColor.g;
+        colors[i * 3 + 2] = tempColor.b;
+      }
+
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      geometry.computeVertexNormals();
+
+      const material = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.85,
+        metalness: 0.05,
+        flatShading: false
+      });
+
+      terrainMesh = new THREE.Mesh(geometry, material);
+      terrainMesh.receiveShadow = true;
+      terrainMesh.castShadow = true;
+      scene.add(terrainMesh);
+    }
+
+    generateTerrain(parseInt(document.getElementById('seed-input').value, 10));
+
+    // ==========================================
+    // CAMERA & INPUT SYSTEM
+    // ==========================================
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.5,
+      2000
+    );
+    camera.position.set(0, 120, 250);
+
+    const keys = {
+      KeyW: false,
+      KeyS: false,
+      KeyA: false,
+      KeyD: false,
+      Space: false,
+      ShiftLeft: false,
+      ShiftRight: false
+    };
+
+    let yaw = 0;
+    let pitch = -0.4;
+    let isDragging = false;
+    const mouseSens = 0.0025;
+    const moveSpeed = 140.0;
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code in keys) keys[e.code] = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code in keys) keys[e.code] = false;
+    });
+
+    renderer.domElement.addEventListener('mousedown', () => {
+      isDragging = true;
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+
+      yaw -= e.movementX * mouseSens;
+      pitch -= e.movementY * mouseSens;
+      pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    document.getElementById('generate-btn').addEventListener('click', () => {
+      let seedVal = parseInt(document.getElementById('seed-input').value, 10);
+      if (Number.isNaN(seedVal)) {
+        seedVal = Math.floor(Math.random() * 50000);
+        document.getElementById('seed-input').value = seedVal;
+      }
+      generateTerrain(seedVal);
+    });
+
+    // ==========================================
+    // ANIMATION LOOP & MOVEMENT ENGINE
+    // ==========================================
+    const clock = new THREE.Clock();
+    const fpsDisplay = document.getElementById('fps-display');
+    let frameCount = 0;
+    let lastFpsTime = 0;
+
+    function updateCamera(delta) {
+      const targetLook = new THREE.Vector3(
+        Math.cos(pitch) * Math.sin(yaw),
+        Math.sin(pitch),
+        Math.cos(pitch) * Math.cos(yaw)
+      ).normalize();
+
+      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
+      const right = new THREE.Vector3(Math.sin(yaw + Math.PI / 2), 0, Math.cos(yaw + Math.PI / 2)).normalize();
+
+      const velocity = new THREE.Vector3();
+
+      if (keys.KeyW) velocity.add(forward);
+      if (keys.KeyS) velocity.sub(forward);
+      if (keys.KeyD) velocity.add(right);
+      if (keys.KeyA) velocity.sub(right);
+
+      if (keys.Space) velocity.y += 1;
+      if (keys.ShiftLeft || keys.ShiftRight) velocity.y -= 1;
+
+      if (velocity.lengthSq() > 0) {
+        velocity.normalize();
+        camera.position.addScaledVector(velocity, moveSpeed * delta);
+      }
+
+      camera.lookAt(camera.position.clone().add(targetLook));
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = Math.min(clock.getDelta(), 0.1);
+      const elapsedTime = clock.getElapsedTime();
+
+      updateCamera(delta);
+      renderer.render(scene, camera);
+
+      frameCount++;
+      if (elapsedTime - lastFpsTime >= 1.0) {
+        fpsDisplay.textContent = frameCount.toString();
+        frameCount = 0;
+        lastFpsTime = elapsedTime;
+      }
+    }
+
+    animate();
+  </script>
+</body>
+</html>
