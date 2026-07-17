@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Cave Generation</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1e1e1e;
+            margin: 0;
+            font-family: monospace;
+            color: #fff;
+        }
+        canvas {
+            image-rendering: pixelated; 
+            background-color: #000;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-family: inherit;
+            background-color: #444;
+            color: #fff;
+            border: 2px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        button:hover {
+            background-color: #666;
+        }
+        button:active {
+            transform: scale(0.95);
+            border-color: #ffaa00;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="terrainCanvas" width="512" height="512"></canvas>
+
+<div class="controls">
+    <button onclick="generateAndRender()">Generate New Cave System</button>
+</div>
+
+<script>
+    const GRID_SIZE = 64; // 64x64 grid
+    const FILL_PROBABILITY = 0.45; // 45% initial wall chance
+    const SMOOTHING_PASSES = 5; // Capped to prevent infinite loops
+
+    // Palette mapping for the terrain
+    const palette = {
+        0: '#3a2e24', // Floor / Excavated Dirt (Dark Brown)
+        1: '#808080', // Solid Wall / Stone (Gray)
+        2: '#ffcc00', // Loot / Ore (Gold)
+    };
+
+    let terrainMap = [];
+
+    // 1. Initialize random grid
+    function initializeMap() {
+        let map = [];
+        for (let y = 0; y < GRID_SIZE; y++) {
+            let row = [];
+            for (let x = 0; x < GRID_SIZE; x++) {
+                // Borders are always walls to keep the dungeon closed
+                if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
+                    row.push(1);
+                } else {
+                    row.push(Math.random() < FILL_PROBABILITY ? 1 : 0);
+                }
+            }
+            map.push(row);
+        }
+        return map;
+    }
+
+    // 2. Cellular Automata Rules
+    function smoothMap(map) {
+        let newMap = JSON.parse(JSON.stringify(map)); // Deep copy to avoid mutating during read
+
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
+                let neighborWalls = getSurroundingWallCount(map, x, y);
+
+                if (neighborWalls > 4) {
+                    newMap[y][x] = 1; // Become/stay wall
+                } else if (neighborWalls < 4) {
+                    newMap[y][x] = 0; // Become/stay floor
+                }
+            }
+        }
+        return newMap;
+    }
+
+    function getSurroundingWallCount(map, gridX, gridY) {
+        let wallCount = 0;
+        for (let neighborY = gridY - 1; neighborY <= gridY + 1; neighborY++) {
+            for (let neighborX = gridX - 1; neighborX <= gridX + 1; neighborX++) {
+                if (neighborX >= 0 && neighborX < GRID_SIZE && neighborY >= 0 && neighborY < GRID_SIZE) {
+                    if (neighborX !== gridX || neighborY !== gridY) {
+                        wallCount += map[neighborY][neighborX] === 1 ? 1 : 0;
+                    }
+                } else {
+                    wallCount++; // Treat out-of-bounds as walls
+                }
+            }
+        }
+        return wallCount;
+    }
+
+    // 3. Populate objects/loot in open spaces
+    function populateOres(map) {
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
+                // If it's a floor tile and highly isolated, chance to spawn ore
+                if (map[y][x] === 0 && Math.random() < 0.02) {
+                    map[y][x] = 2; // Set to ore
+                }
+            }
+        }
+        return map;
+    }
+
+    // 4. Render Engine
+    function renderTerrain(canvasId, map, colorPalette) {
+        const canvas = document.getElementById(canvasId);
+        const ctx = canvas.getContext('2d');
+        const rows = map.length;
+        const cols = map[0].length;
+        
+        const pixelWidth = canvas.width / cols;
+        const pixelHeight = canvas.height / rows;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                const tileType = map[y][x];
+                const color = colorPalette[tileType];
+
+                if (color) {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(
+                        Math.floor(x * pixelWidth), 
+                        Math.floor(y * pixelHeight), 
+                        Math.ceil(pixelWidth), 
+                        Math.ceil(pixelHeight)
+                    );
+                }
+            }
+        }
+    }
+
+    // Main Execution
+    function generateAndRender() {
+        let map = initializeMap();
+        
+        for (let i = 0; i < SMOOTHING_PASSES; i++) {
+            map = smoothMap(map);
+        }
+        
+        map = populateOres(map);
+        terrainMap = map;
+        renderTerrain('terrainCanvas', terrainMap, palette);
+    }
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+        generateAndRender();
+    });
+</script>
+</body>
+</html>
