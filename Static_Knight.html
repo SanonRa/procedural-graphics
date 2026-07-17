@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>32x32 Pixel Art Knight</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #2b2b2b; /* Dark theme to make the armor pop */
+            margin: 0;
+        }
+        canvas {
+            /* Scaled up visually. Pixel art looks best when kept crisp */
+            image-rendering: pixelated; 
+            background-color: #3b3b3b; /* Fallback background for transparent pixels */
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Rendered at 256x256 (8x scale of the 32x32 sprite) -->
+<canvas id="knightCanvas" width="256" height="256"></canvas>
+
+<script>
+    // 1. The 32x32 Static Array
+    // Using characters maps perfectly to a visual grid, preventing coordinate mistakes.
+    const knightArt = [
+        "................................",
+        "................................",
+        ".............RRRRR..............",
+        "...........RRRRrrrR.............",
+        "..........RRrrR.rrrR............",
+        "..........RrrR...rr.............",
+        ".................#..............",
+        "..............######............",
+        ".............#------#...........",
+        "............#--+++++-#..........",
+        "............#-++####+-#.........",
+        "............#-++#..#+-#.........", // Visor eye slit
+        "............#--+++++--#.........",
+        ".............#======##..........",
+        "..............######............",
+        ".............#++++++#...........",
+        "...........##-++++++-##.........",
+        "..........#--#++++++#--#...*....", // Sword tip starts here
+        ".........#--+#++++++#+--#..*....",
+        ".........#-++#++++++#++-#..*....",
+        ".........#--+#======#+--#..*....",
+        "..........##-#======#-##...*....",
+        ".............#++++++#....***....", // Sword crossguard
+        ".............#++++++#....#+#....", // Hand gripping hilt
+        ".............#======#....###....",
+        ".............########...........",
+        "............#++#..#++#..........",
+        "............#++#..#++#..........",
+        "............#==#..#==#..........",
+        "...........####....####.........",
+        "..........#----#..#----#........",
+        "..........######..######........"
+    ];
+
+    // 2. Palette Dictionary
+    // Isolates colors from the logic so they can be easily swapped for alternate themes.
+    const palette = {
+        '.': null,        // Transparent
+        'R': '#e60000',   // Plume (Red)
+        'r': '#8b0000',   // Plume Shadow (Dark Red)
+        '#': '#1a1a1a',   // Outlines/Dark Details (Almost Black)
+        '-': '#f5f5f5',   // Armor Highlight (Silver/White)
+        '+': '#a9a9a9',   // Armor Base (Gray)
+        '=': '#696969',   // Armor Shadow (Dark Gray)
+        '*': '#e0f7fa'    // Sword Blade (Bright Ice/Silver)
+    };
+
+    // 3. Render Engine
+    function renderPixelArt(canvasId, artArray, colorPalette) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+            console.error(`Canvas rendering error: ID '${canvasId}' not found in DOM.`);
+            return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        const rows = artArray.length;
+        const cols = artArray[0].length;
+        
+        // Calculate scaling multiplier dynamically
+        const pixelWidth = canvas.width / cols;
+        const pixelHeight = canvas.height / rows;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < rows; y++) {
+            // Error handling: Catch malformed rows immediately if the array is modified later
+            if (artArray[y].length !== cols) {
+                console.warn(`Formatting error on row ${y}: Expected ${cols} characters, got ${artArray[y].length}.`);
+            }
+
+            for (let x = 0; x < cols; x++) {
+                const char = artArray[y][x];
+                const color = colorPalette[char];
+
+                if (color) {
+                    ctx.fillStyle = color;
+                    
+                    // Using Math.floor and Math.ceil prevents the sub-pixel "bleeding" 
+                    // or microscopic grid gaps that occur in some browser engines.
+                    ctx.fillRect(
+                        Math.floor(x * pixelWidth), 
+                        Math.floor(y * pixelHeight), 
+                        Math.ceil(pixelWidth), 
+                        Math.ceil(pixelHeight)
+                    );
+                }
+            }
+        }
+    }
+
+    // Ensure DOM is fully loaded before painting
+    window.addEventListener('DOMContentLoaded', () => {
+        renderPixelArt('knightCanvas', knightArt, palette);
+    });
+</script>
+</body>
+</html>
